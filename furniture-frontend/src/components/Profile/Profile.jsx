@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import Header from '../Header/Header'
 import ProfileSidebar from './ProfileSidebar'
 import ProfileDetails from './ProfileDetails'
@@ -7,8 +9,17 @@ import Footer from '../Footer/Footer'
 function Profile() {
   const [activeTab, setActiveTab] = useState('account')
   const [loggedOut, setLoggedOut] = useState(false)
+  const { isLoggedIn, logout } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!isLoggedIn && !loggedOut) {
+      navigate('/login')
+    }
+  }, [isLoggedIn, navigate, loggedOut])
 
   const handleLogout = () => {
+    logout()
     setLoggedOut(true)
     setTimeout(() => {
       // Simulate redirection to home page

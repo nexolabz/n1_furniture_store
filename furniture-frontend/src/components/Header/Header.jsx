@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 
 function Header() {
+  const { isLoggedIn } = useAuth()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen)
@@ -110,6 +112,16 @@ function Header() {
               </span>
             </NavLink>
 
+            {/* Login Button (Only if not logged in) */}
+            {!isLoggedIn && (
+              <NavLink
+                to="/login"
+                className="text-xs font-bold uppercase tracking-wider px-3.5 py-1.5 border border-neutral-900 rounded-lg bg-neutral-900 text-white hover:bg-neutral-800 transition-all duration-300"
+              >
+                Login
+              </NavLink>
+            )}
+
             {/* Mobile Menu Button */}
             <button
               onClick={toggleMenu}
@@ -148,6 +160,16 @@ function Header() {
               {link.label}
             </NavLink>
           ))}
+          
+          {!isLoggedIn && (
+            <NavLink
+              to="/login"
+              onClick={() => setIsMenuOpen(false)}
+              className="block w-full text-center py-2.5 mt-4 text-xs font-bold uppercase tracking-wider bg-neutral-900 text-white rounded-lg hover:bg-neutral-850 transition-colors duration-200"
+            >
+              Login / Sign Up
+            </NavLink>
+          )}
         </div>
       </div>
     </header>

@@ -7,4 +7,5 @@ export default defineConfig({
   plugins: [react(),
     tailwindcss(),
   ],
+  base: "/n1_furniture_store/",
 })
