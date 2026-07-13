@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { useCart } from '../../context/CartContext'
 
 function Header() {
   const { isLoggedIn } = useAuth()
+  const { cartCount } = useCart()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen)
@@ -51,7 +53,7 @@ function Header() {
           </div>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden lg:flex space-x-8 xl:space-x-10">
+          <nav className="hidden xl:flex space-x-8 xl:space-x-10">
             {navLinks.map((link) => (
               <NavLink key={link.path} to={link.path} className={activeLinkStyle}>
                 {link.label}
@@ -107,9 +109,11 @@ function Header() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
-              <span className="absolute top-1 right-1 bg-amber-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center transform translate-x-1 -translate-y-1">
-                2
-              </span>
+              {cartCount > 0 && (
+                <span className="absolute top-1 right-1 bg-amber-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center transform translate-x-1 -translate-y-1">
+                  {cartCount}
+                </span>
+              )}
             </NavLink>
 
             {/* Login Button (Only if not logged in) */}
@@ -125,7 +129,7 @@ function Header() {
             {/* Mobile Menu Button */}
             <button
               onClick={toggleMenu}
-              className="lg:hidden p-2 text-neutral-600 hover:text-neutral-900 rounded-full hover:bg-neutral-50 transition-colors duration-200 focus:outline-none"
+              className="xl:hidden p-2 text-neutral-600 hover:text-neutral-900 rounded-full hover:bg-neutral-50 transition-colors duration-200 focus:outline-none"
               aria-label="Toggle Menu"
             >
               {isMenuOpen ? (
@@ -145,7 +149,7 @@ function Header() {
 
       {/* Mobile Menu Panel */}
       <div
-        className={`lg:hidden transition-all duration-300 ease-in-out overflow-hidden bg-white border-t border-neutral-100 ${
+        className={`xl:hidden transition-all duration-300 ease-in-out overflow-hidden bg-white border-t border-neutral-100 ${
           isMenuOpen ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0 pointer-events-none'
         }`}
       >

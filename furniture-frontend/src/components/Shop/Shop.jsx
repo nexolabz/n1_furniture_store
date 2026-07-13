@@ -4,8 +4,10 @@ import Header from '../Header/Header'
 import Footer from '../Footer/Footer'
 import { products } from '../../data/products'
 import CardCategory from './CardCategory'
+import { useCart } from '../../context/CartContext'
 
 function Shop() {
+  const { addToCart } = useCart()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeCategory = searchParams.get('category') || 'all'
   
@@ -60,6 +62,10 @@ function Shop() {
 
   // Add to cart click handler (micro-interaction)
   const handleAddToCart = (id) => {
+    const product = products.find(p => p.id === id)
+    if (product) {
+      addToCart(product)
+    }
     setAddedToCart(prev => ({ ...prev, [id]: true }))
     setTimeout(() => {
       setAddedToCart(prev => ({ ...prev, [id]: false }))

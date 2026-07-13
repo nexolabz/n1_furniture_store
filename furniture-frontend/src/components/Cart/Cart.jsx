@@ -3,64 +3,21 @@ import Header from '../Header/Header'
 import CartItems from './CartItems'
 import CartSummary from './CartSummary'
 import Footer from '../Footer/Footer'
-
-// Import mock images
-import sofaImg from '../../assets/products/sofa.png'
-import deskImg from '../../assets/products/desk.png'
+import { useCart } from '../../context/CartContext'
 
 function Cart() {
-  const [items, setItems] = useState([
-    {
-      id: 'lr-1',
-      name: 'Scandinavian Modular Sofa',
-      category: 'living-room',
-      price: 54999,
-      qty: 1,
-      image: sofaImg
-    },
-    {
-      id: 'of-1',
-      name: 'Minimalist Study Desk',
-      category: 'office',
-      price: 24999,
-      qty: 1,
-      image: deskImg
-    }
-  ])
+  const { cartItems, updateQty, removeFromCart, clearCart, cartSubtotal } = useCart()
   const [isCheckedOut, setIsCheckedOut] = useState(false)
-
-  // Quantity updates
-  const handleUpdateQty = (id, delta) => {
-    setItems(prevItems =>
-      prevItems
-        .map(item => {
-          if (item.id === id) {
-            const nextQty = item.qty + delta
-            return { ...item, qty: nextQty }
-          }
-          return item
-        })
-        .filter(item => item.qty > 0)
-    )
-  }
-
-  // Remove item
-  const handleRemoveItem = (id) => {
-    setItems(prevItems => prevItems.filter(item => item.id !== id))
-  }
 
   // Checkout confirmation
   const handleCheckout = () => {
     setIsCheckedOut(true)
-    setItems([]) // Empty the cart
+    clearCart() // Empty the cart
     setTimeout(() => {
       setIsCheckedOut(false)
       window.location.href = '/'
     }, 2200)
   }
-
-  // Subtotal
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0)
 
   return (
     <div className="flex flex-col min-h-screen bg-neutral-50/20 relative">
@@ -92,14 +49,14 @@ function Cart() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           
           <CartItems 
-            items={items} 
-            onUpdateQty={handleUpdateQty} 
-            onRemoveItem={handleRemoveItem} 
+            items={cartItems} 
+            onUpdateQty={updateQty} 
+            onRemoveItem={removeFromCart} 
           />
           
-          {items.length > 0 && (
+          {cartItems.length > 0 && (
             <CartSummary 
-              subtotal={subtotal} 
+              subtotal={cartSubtotal} 
               onCheckout={handleCheckout} 
             />
           )}
