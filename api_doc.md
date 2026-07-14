@@ -6,6 +6,140 @@ This master specification details every endpoint, method, request payload, and r
 
 ---
 
+## 0. Platform Conventions
+
+### 0.1 Route registration order
+
+Register **static path segments before parameterized routes** in the Express router:
+
+| Router prefix | Static routes (register first) | Parametric routes (register last) |
+|---------------|----------------------------------|-----------------------------------|
+| `/api/products` | `/search`, `/sale` | `/:id` |
+| `/api/orders` | `/history`, `/cancel` | `/:id`, `/:id/delivery-mode`, `/:id/refund-status` |
+
+Endpoint sections below follow this ordering where applicable (e.g. `GET /api/products/sale` is documented before `GET /api/products/:id`).
+
+### 0.2 Financial summary (`financial_summary`)
+
+All cart, checkout, order, and invoice responses use the same field names:
+
+| Field | Description |
+|-------|-------------|
+| `subtotal_amount` | Sum of line-item prices before discount |
+| `discount_applied` | Coupon or promo markdown (0 if none) |
+| `gst_tax_amount` | 18% GST on `(subtotal_amount − discount_applied)` |
+| `delivery_charges` | ₹0 when post-discount subtotal ≥ ₹10,000; otherwise ₹1,500 |
+| `grand_total` | `subtotal_amount − discount_applied + gst_tax_amount + delivery_charges` |
+
+### 0.3 Order status vs delivery status vs delivery mode
+
+These are separate fields on different entities:
+
+| Entity | Field | Allowed values |
+|--------|-------|----------------|
+| Order | `order_status` | `PENDING`, `CONFIRMED`, `CANCELLED` |
+| Order | `delivery_mode` | `HOME_DELIVERY`, `SHOWROOM_PICKUP` |
+| Delivery | `delivery_status` | `UNASSIGNED`, `SHIPPED`, `DELIVERED` |
+
+Dispatch (`PATCH /api/admin/orders/dispatch`) updates **`delivery_status`** and assigns a driver. It does **not** change `order_status` to `SHIPPED`. `SHOWROOM_PICKUP` is a `delivery_mode` value, not a `delivery_status`.
+
+### 0.4 Computed / derived fields
+
+| Field | Rule |
+|-------|------|
+| `estimated_delivery_date` | Computed at response time: current date + 7 calendar days (not stored in DB) |
+| `discount_percentage` (product detail) | `((original_price − price) / original_price) × 100`, rounded to 2 decimals |
+| `rating` (products) | Denormalized average of review ratings; stored on `products.rating` |
+
+### 0.5 Standard error response
+
+```json
+{
+  "message": "Human-readable error description.",
+  "error_code": "OPTIONAL_MACHINE_CODE"
+}
+```
+
+| Status | When |
+|--------|------|
+| 400 | Validation failure, malformed request body |
+| 401 | Missing or invalid JWT |
+| 403 | Authenticated but insufficient role or resource ownership |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate email, stock race at commit) |
+| 422 | Business rule violation (invalid coupon, non-cancellable order) |
+
+### 0.6 Role-based access (RBAC)
+
+| Prefix | CUSTOMER | STORE_STAFF | DELIVERY_PARTNER | ADMIN |
+|--------|:--------:|:-----------:|:----------------:|:-----:|
+| `/api/auth/*` (signup, login, forgot-password) | ✓ | ✓ | ✓ | ✓ |
+| `/api/customer/*` | ✓ | — | — | — |
+| `/api/home`, `/api/categories`, `/api/products/*`, `/api/collections/*` | public | public | public | public |
+| `/api/cart`, `/api/wishlist`, `/api/reviews`, `/api/checkout/*`, `/api/orders/*`, `/api/payments/*`, `/api/deliveries/track/*` | ✓ | — | — | — |
+| `/api/contact` | public | public | public | public |
+| `/api/staff/*` | — | ✓ | — | ✓ |
+| `/api/delivery/*` | — | — | ✓ | ✓ |
+| `/api/admin/*` | — | — | — | ✓ |
+
+### 0.7 localStorage cart sync mapping
+
+When converting browser `localStorage` cart items for `POST /api/cart/sync`:
+
+| localStorage field | API field |
+|--------------------|-----------|
+| `id` | `product_id` |
+| `qty` | `quantity` |
+
+### 0.8 ENUM reference
+
+All ENUM columns and request/response string literals use these values:
+
+| Field | Allowed values |
+|-------|----------------|
+| `role` | `CUSTOMER`, `STORE_STAFF`, `DELIVERY_PARTNER`, `ADMIN` |
+| `category` | `living-room`, `bedroom`, `dining-room`, `office`, `outdoor`, `kids` |
+| `order_status` | `PENDING`, `CONFIRMED`, `CANCELLED` |
+| `delivery_mode` | `HOME_DELIVERY`, `SHOWROOM_PICKUP` |
+| `delivery_status` | `UNASSIGNED`, `SHIPPED`, `DELIVERED` |
+| `payment_method` | `UPI`, `CREDIT_CARD`, `DEBIT_CARD`, `CASH`, `COD` |
+| `payment_status` | `PENDING`, `COMPLETED`, `FAILED`, `REFUNDED` |
+| `order_placement_channel` | `ONLINE`, `IN_STORE` |
+| `refund_status` | `NOT_APPLICABLE`, `INITIATED`, `PROCESSING`, `COMPLETED`, `FAILED` |
+| `contact_messages.status` | `OPEN`, `IN_PROGRESS`, `RESOLVED` |
+
+### 0.9 Pagination
+
+List endpoints that return more than one record support optional `page` query parameter (1-based, default: `1`). Responses include `pagination_metadata`:
+
+```json
+{
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 145,
+    "total_pages": 8
+  }
+}
+```
+
+Default page sizes: public product lists **15**; customer order history and product reviews **10**; all admin and delivery-partner lists **20**.
+
+### 0.10 Media and image URLs
+
+Version 1 does **not** include multipart file-upload endpoints. Product and review images are referenced by **HTTPS URL strings** only. The typical workflow:
+
+1. Admin uploads files to CDN/object storage (e.g. S3, Cloudinary) outside this API.
+2. Admin calls `POST /api/admin/products/:id/images` or includes `images[]` in review payloads with the resulting public URL.
+
+Maximum **5** gallery images per product; maximum **3** image URLs per review.
+
+### 0.11 ADMIN account bootstrap
+
+The first Store Owner account (`role: "ADMIN"`) is **seeded via database migration** — it cannot be created through `POST /api/auth/signup` or `POST /api/admin/users`. Only an authenticated `ADMIN` may access `/api/admin/*` endpoints. `POST /api/admin/users` may provision `STORE_STAFF` and `DELIVERY_PARTNER` only; attempting to set `role: "ADMIN"` returns **403 Forbidden**.
+
+---
+
 ## 1. Persona: Customer Workflows (Online / Mobile Web Apps)
 
 ### 1.1 Authentication & Session Gateway
@@ -40,10 +174,16 @@ Registers a new **customer** account. This endpoint always creates users with th
 ```json
 {
   "message": "Customer account registered successfully.",
-  "user_id": 2045,
-  "role": "CUSTOMER"
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoyMDQ1LCJyb2xlIjoiQ1VTVE9NRVIifQ...",
+  "user": {
+    "user_id": 2045,
+    "full_name": "Arjun Mehta",
+    "role": "CUSTOMER"
+  }
 }
 ```
+
+> **Session policy:** Signup returns the same `token` + `user` shape as login so the client can authenticate immediately without a second round-trip. Clients that prefer a separate login step may discard the token and call `POST /api/auth/login`.
 
 **Error Response (403 Forbidden):**
 
@@ -316,9 +456,36 @@ Queries catalog records across naming arrays and description fields.
 }
 ```
 
+#### `GET /api/products/sale`
+
+Returns active clearance markdowns, price reductions, and markdown values.
+
+> **Route note:** Must be registered before `GET /api/products/:id` (see §0.1).
+
+**Success Response (200 OK):**
+
+```json
+{
+  "sale_event_title": "Monsoon Clearance Drive",
+  "discounted_products": [
+    {
+      "product_id": 78,
+      "product_name": "Ergonomic Mesh Task Chair",
+      "discount_percentage": 20.00,
+      "old_price": 15000.00,
+      "new_price": 12000.00,
+      "rating": 4.40,
+      "image_url": "https://assets.furni.in/p78.jpg"
+    }
+  ]
+}
+```
+
 #### `GET /api/products/:id`
 
 Returns product technical data, layout dimensions, available stock variants, and customer review items.
+
+> **Computed field:** `estimated_delivery_date` is derived at response time (today + 7 days); it is not stored in the database.
 
 **Success Response (200 OK):**
 
@@ -405,29 +572,6 @@ Returns all products mapped to a specific design collection via the `product_col
 }
 ```
 
-#### `GET /api/products/sale`
-
-Returns active clearance markdowns, price reductions, and markdown values.
-
-**Success Response (200 OK):**
-
-```json
-{
-  "sale_event_title": "Monsoon Clearance Drive",
-  "discounted_products": [
-    {
-      "product_id": 78,
-      "product_name": "Ergonomic Mesh Task Chair",
-      "discount_percentage": 20.00,
-      "old_price": 15000.00,
-      "new_price": 12000.00,
-      "rating": 4.40,
-      "image_url": "https://assets.furni.in/p78.jpg"
-    }
-  ]
-}
-```
-
 ---
 
 ### 1.4 Engagement & Retention Matrix
@@ -450,11 +594,11 @@ Fetches a user's active cart rows, running tax calculations on the backend based
     { "cart_item_id": 901, "product_id": 56, "product_name": "Solid Walnut Dining Table", "quantity": 1, "unit_price": 62000.00 }
   ],
   "financial_summary": {
-    "total_price_subtotal": 62000.00,
+    "subtotal_amount": 62000.00,
     "discount_applied": 0.00,
-    "gst_amount_18": 11160.00,
-    "delivery_charges": 1500.00,
-    "final_amount_grand_total": 74660.00
+    "gst_tax_amount": 11160.00,
+    "delivery_charges": 0.00,
+    "grand_total": 73160.00
   }
 }
 ```
@@ -486,7 +630,7 @@ Saves new inventory selection lines into the user's persistent database profile 
 
 #### `POST /api/cart/sync`
 
-Bulk-syncs client-side localStorage cart items into the database-backed cart at checkout start.
+Bulk-syncs client-side localStorage cart items into the database-backed cart at checkout start. Map browser fields per §0.7 (`id` → `product_id`, `qty` → `quantity`).
 
 **Headers:**
 
@@ -631,6 +775,12 @@ Removes product linkages from the user's saved items layout matrix.
 
 Retrieves submitted feedback parameters and aggregate scores for a specific catalog asset index.
 
+**Query Parameters:**
+
+| Parameter | Type    | Description |
+|----------|---------|-------------|
+| `page`   | Integer | Page number (default: 1; 10 items per page) |
+
 **Success Response (200 OK):**
 
 ```json
@@ -638,13 +788,25 @@ Retrieves submitted feedback parameters and aggregate scores for a specific cata
   "product_id": 56,
   "reviews": [
     { "review_id": 401, "user_id": 1054, "rating": 5, "feedback": "Stunning craftsmanship worth every rupee.", "images": ["https://assets.furni.in/review-images/r401.jpg"] }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 10,
+    "total_items": 24,
+    "total_pages": 3
+  }
 }
 ```
 
 #### `POST /api/reviews`
 
 Inserts post-purchase consumer feedback metrics directly into database log tables.
+
+> **Verification rules (enforced server-side):**
+> - Caller must have at least one **`CONFIRMED`** order containing `product_id` in `order_items`.
+> - One review per `(user_id, product_id)` — duplicate returns **409 Conflict**.
+> - `rating` must be an integer **1–5**; `feedback` is optional (max 2000 chars).
+> - `images` is optional — up to **3** HTTPS URL strings (see §0.10); no multipart upload.
 
 **Headers:**
 
@@ -666,6 +828,24 @@ Inserts post-purchase consumer feedback metrics directly into database log table
 ```json
 {
   "message": "Customer product review captured and documented successfully."
+}
+```
+
+**Error Response (409 Conflict):**
+
+```json
+{
+  "message": "You have already reviewed this product.",
+  "error_code": "REVIEW_ALREADY_EXISTS"
+}
+```
+
+**Error Response (422 Unprocessable Entity):**
+
+```json
+{
+  "message": "Reviews are only allowed for products you have purchased and received.",
+  "error_code": "REVIEW_NOT_ELIGIBLE"
 }
 ```
 
@@ -752,12 +932,12 @@ Calculates real-time financial totals at checkout, checking active inventory blo
     "coupon_status": "VALID",
     "stock_availability": "ALL_ITEMS_IN_STOCK"
   },
-  "order_summary": {
-    "total_price_subtotal": 62000.00,
-    "discount_applied_markdown": 6200.00,
-    "gst_tax_calculated_18": 10044.00,
+  "financial_summary": {
+    "subtotal_amount": 62000.00,
+    "discount_applied": 6200.00,
+    "gst_tax_amount": 10044.00,
     "delivery_charges": 0.00,
-    "final_amount_liability": 65844.00
+    "grand_total": 65844.00
   }
 }
 ```
@@ -886,9 +1066,17 @@ Retrieves payment status and audit details for a specific order.
 
 Retrieves past order records, item sub-lists, and tracking indicators for the active user account.
 
+> **Route note:** Must be registered before `GET /api/orders/:id` (see §0.1).
+
 **Headers:**
 
 - `Authorization: Bearer <JWT_TOKEN>`
+
+**Query Parameters:**
+
+| Parameter | Type    | Description |
+|----------|---------|-------------|
+| `page`   | Integer | Page number (default: 1; 10 items per page) |
 
 **Success Response (200 OK):**
 
@@ -898,7 +1086,7 @@ Retrieves past order records, item sub-lists, and tracking indicators for the ac
     {
       "order_id": 99201,
       "created_at": "2026-07-14T16:45:00Z",
-      "total_amount": 65844.00,
+      "grand_total": 65844.00,
       "payment_status": "COMPLETED",
       "order_status": "CONFIRMED",
       "delivery_status": "UNASSIGNED",
@@ -907,7 +1095,13 @@ Retrieves past order records, item sub-lists, and tracking indicators for the ac
         { "product_id": 56, "product_name": "Solid Walnut Dining Table", "quantity": 1, "price_snapshot": 62000.00 }
       ]
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 10,
+    "total_items": 14,
+    "total_pages": 2
+  }
 }
 ```
 
@@ -1026,7 +1220,7 @@ Handles public messaging from unauthenticated context forms.
 
 #### `POST /api/contact`
 
-Logs incoming support requests, user messages, and contact forms into database tables.
+Logs incoming support requests, user messages, and contact forms into database tables. All four fields are required.
 
 **Request Body (JSON):**
 
@@ -1151,11 +1345,12 @@ Processes point-of-sale transactions by assigning the client ID and adding a `bo
     "financials": {
       "subtotal_amount": 147000.00,
       "discount_applied": 14700.00,
-      "gst_tax_calculated_18": 23814.00,
+      "gst_tax_amount": 23814.00,
       "grand_total": 156114.00
     },
     "payment_status": "COMPLETED",
-    "delivery_status": "SHOWROOM_PICKUP"
+    "delivery_mode": "SHOWROOM_PICKUP",
+    "delivery_status": "UNASSIGNED"
   }
 }
 ```
@@ -1190,9 +1385,10 @@ Generates a printable showroom invoice with base price, discount, and GST breakd
   "financials": {
     "subtotal_amount": 147000.00,
     "discount_applied": 14700.00,
-    "gst_tax_calculated_18": 23814.00,
+    "gst_tax_amount": 23814.00,
     "grand_total": 156114.00
   },
+  "delivery_mode": "SHOWROOM_PICKUP",
   "payment_method": "CREDIT_CARD",
   "payment_status": "COMPLETED",
   "issued_at": "2026-07-14T16:30:00Z"
@@ -1217,6 +1413,12 @@ Lists pending and active delivery tasks assigned to the authenticated carrier pr
 
 - `Authorization: Bearer <DELIVERY_JWT_TOKEN>`
 
+**Query Parameters:**
+
+| Parameter | Type    | Description |
+|----------|---------|-------------|
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
+
 **Success Response (200 OK):**
 
 ```json
@@ -1232,7 +1434,13 @@ Lists pending and active delivery tasks assigned to the authenticated carrier pr
       "pin_code": "411001",
       "delivery_status": "SHIPPED"
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 5,
+    "total_pages": 1
+  }
 }
 ```
 
@@ -1267,6 +1475,8 @@ Updates shipment progression states within the logistics tracking system.
 ---
 
 ## 4. Persona: Store Owner / Admin Workflows
+
+> **Access requirement:** All endpoints in this section require a JWT with `role: "ADMIN"`. The bootstrap ADMIN account is seeded via migration (see §0.11). Staff and delivery partners cannot access these routes.
 
 ### 4.1 Executive Insights Analytics
 
@@ -1333,6 +1543,50 @@ Inserts a new product asset directly into the master database catalog table.
 {
   "message": "Product asset successfully added to inventory database.",
   "product_id": 541
+}
+```
+
+#### `GET /api/admin/products`
+
+Lists all products in the catalog for admin management with pagination and optional filters.
+
+**Headers:**
+
+- `Authorization: Bearer <ADMIN_JWT_TOKEN>`
+
+**Query Parameters:**
+
+| Parameter       | Type    | Description |
+|----------------|---------|-------------|
+| `category`      | String  | Filter by category slug (e.g. `office`) |
+| `q`             | String  | Search by product name |
+| `is_online_only`| Boolean | Filter online-exclusive items |
+| `page`          | Integer | Page number (default: 1; 20 items per page) |
+
+**Success Response (200 OK):**
+
+```json
+{
+  "products": [
+    {
+      "product_id": 541,
+      "product_name": "Scandi Oak Bookshelf",
+      "category": "office",
+      "price": 28500.00,
+      "original_price": 32000.00,
+      "stock_count": 25,
+      "rating": 5.00,
+      "is_online_only": true,
+      "is_new": true,
+      "image_url": "https://assets.furni.in/bookshelf.jpg"
+    }
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 540,
+    "total_pages": 27
+  }
 }
 ```
 
@@ -1419,7 +1673,7 @@ Removes items from active catalogs while maintaining historical record tracking.
 
 #### `POST /api/admin/products/:id/images`
 
-Adds an image to a product's gallery via the `product_images` table.
+Adds an image to a product's gallery via the `product_images` table. Accepts a public **HTTPS URL** only — no multipart upload (see §0.10). Maximum **5** images per product.
 
 **Headers:**
 
@@ -1633,6 +1887,7 @@ Lists all promo codes and their active status.
 | Parameter | Type   | Description |
 |----------|--------|-------------|
 | `active` | Boolean | Filter by active status (e.g. `true`) |
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
 
 **Success Response (200 OK):**
 
@@ -1647,7 +1902,13 @@ Lists all promo codes and their active status.
       "valid_from": "2026-01-01T00:00:00Z",
       "valid_until": "2026-12-31T23:59:59Z"
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 4,
+    "total_pages": 1
+  }
 }
 ```
 
@@ -1751,6 +2012,7 @@ Filters the global transaction ledger based on running workflow parameters.
 | Parameter | Type   | Description |
 |----------|--------|-------------|
 | `status` | String | Filter by order status (e.g. `PENDING`) |
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
 
 **Success Response (200 OK):**
 
@@ -1764,7 +2026,13 @@ Filters the global transaction ledger based on running workflow parameters.
       "grand_total": 65844.00,
       "order_status": "PENDING"
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 14502,
+    "total_pages": 726
+  }
 }
 ```
 
@@ -1813,7 +2081,7 @@ Retrieves full order detail including line items, payment, delivery status, and 
 
 #### `PATCH /api/admin/orders/dispatch`
 
-Updates order logistics status values and coordinates driver assignment workflows.
+Updates **`delivery_status`** and assigns a delivery driver. Does not modify `order_status` (remains `CONFIRMED`). See §0.3.
 
 **Headers:**
 
@@ -1824,7 +2092,7 @@ Updates order logistics status values and coordinates driver assignment workflow
 ```json
 {
   "order_id": 99201,
-  "order_status": "SHIPPED",
+  "delivery_status": "SHIPPED",
   "assigned_driver_user_id": 884
 }
 ```
@@ -1834,7 +2102,8 @@ Updates order logistics status values and coordinates driver assignment workflow
 ```json
 {
   "message": "Order successfully marked as dispatched. Delivery tracking initialized.",
-  "delivery_id": 88201
+  "delivery_id": 88201,
+  "delivery_status": "SHIPPED"
 }
 ```
 
@@ -1885,6 +2154,7 @@ Lists all delivery records for logistics monitoring.
 | Parameter | Type   | Description |
 |----------|--------|-------------|
 | `status` | String | Filter by delivery status (e.g. `SHIPPED`) |
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
 
 **Success Response (200 OK):**
 
@@ -1898,7 +2168,13 @@ Lists all delivery records for logistics monitoring.
       "assigned_driver_user_id": 884,
       "actual_delivery": null
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 320,
+    "total_pages": 16
+  }
 }
 ```
 
@@ -1915,6 +2191,7 @@ Provides financial audit data across all order payments.
 | Parameter | Type   | Description |
 |----------|--------|-------------|
 | `status` | String | Filter by payment status (e.g. `COMPLETED`) |
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
 
 **Success Response (200 OK):**
 
@@ -1926,9 +2203,16 @@ Provides financial audit data across all order payments.
       "order_id": 99201,
       "payment_method": "UPI",
       "payment_status": "COMPLETED",
+      "amount": 65844.00,
       "updated_at": "2026-07-14T16:50:00Z"
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 14502,
+    "total_pages": 726
+  }
 }
 ```
 
@@ -1951,6 +2235,7 @@ Retrieves system user logs based on role type permissions.
 | Parameter | Type   | Description |
 |----------|--------|-------------|
 | `role`   | String | Filter by role (e.g. `STORE_STAFF`) |
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
 
 **Success Response (200 OK):**
 
@@ -1958,7 +2243,13 @@ Retrieves system user logs based on role type permissions.
 {
   "users": [
     { "user_id": 412, "full_name": "Neha Singh", "email": "neha.singh@furni.in", "role": "STORE_STAFF", "created_at": "2025-09-10T11:00:00Z" }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 18,
+    "total_pages": 1
+  }
 }
 ```
 
@@ -1966,7 +2257,7 @@ Retrieves system user logs based on role type permissions.
 
 Creates a staff or delivery partner account on behalf of the Store Owner. The owner sets the initial password and shares the login credentials with the staff member directly. Staff use these credentials to sign in via `POST /api/auth/login` — they do not self-register.
 
-**Allowed roles:** `STORE_STAFF`, `DELIVERY_PARTNER`
+**Allowed roles:** `STORE_STAFF`, `DELIVERY_PARTNER` only. Setting `role: "ADMIN"` returns **403 Forbidden** (see §0.11).
 
 **Headers:**
 
@@ -1995,6 +2286,17 @@ Creates a staff or delivery partner account on behalf of the Store Owner. The ow
     "password": "StaffSecurePass441!",
     "role": "STORE_STAFF"
   }
+}
+```
+
+> **Security note:** `login_credentials.password` is returned only at account creation so the owner can share it offline. Production deployments may omit the password from the response body and rely on out-of-band credential delivery.
+
+**Error Response (403 Forbidden):**
+
+```json
+{
+  "message": "ADMIN accounts cannot be created through this endpoint. The bootstrap admin is seeded via migration.",
+  "error_code": "ADMIN_ROLE_NOT_PROVISIONABLE"
 }
 ```
 
@@ -2059,13 +2361,25 @@ Retrieves a comprehensive list of all product reviews across categories to ident
 
 - `Authorization: Bearer <ADMIN_JWT_TOKEN>`
 
+**Query Parameters:**
+
+| Parameter | Type    | Description |
+|----------|---------|-------------|
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
+
 **Success Response (200 OK):**
 
 ```json
 {
   "all_user_reviews": [
     { "review_id": 401, "product_id": 56, "user_id": 1054, "rating": 5, "feedback": "Spam message context text template." }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 892,
+    "total_pages": 45
+  }
 }
 ```
 
@@ -2104,6 +2418,7 @@ Lists all contact form submissions and support tickets.
 | Parameter | Type   | Description |
 |----------|--------|-------------|
 | `status` | String | Filter by status (e.g. `OPEN`, `IN_PROGRESS`, `RESOLVED`) |
+| `page`   | Integer | Page number (default: 1; 20 items per page) |
 
 **Success Response (200 OK):**
 
@@ -2119,7 +2434,13 @@ Lists all contact form submissions and support tickets.
       "status": "OPEN",
       "created_at": "2026-07-14T14:00:00Z"
     }
-  ]
+  ],
+  "pagination_metadata": {
+    "current_page": 1,
+    "items_per_page": 20,
+    "total_items": 47,
+    "total_pages": 3
+  }
 }
 ```
 

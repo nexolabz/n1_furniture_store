@@ -6,11 +6,12 @@ Quick-reference index for all endpoints documented in [`api_doc.md`](./api_doc.m
 
 | Metric | Count |
 |--------|------:|
-| Endpoints in `api_doc.md` | **72** |
+| Endpoints in `api_doc.md` | **73** |
 | Endpoints implemented in backend | **2** |
 | Tables defined in PRD schema (§5) | **17** |
-| PRD schema gaps vs API doc | **8 items** |
-| API doc gaps vs PRD schema | **0 items** |
+| PRD schema gaps vs API doc | **13 items** |
+| API doc internal inconsistencies | **Resolved** (see §4) |
+| API doc minor polish items | **Resolved** (see §4) |
 
 ---
 
@@ -35,10 +36,12 @@ Quick-reference index for all endpoints documented in [`api_doc.md`](./api_doc.m
 | `GET` | `/api/categories` | Active categories with product counts |
 | `GET` | `/api/products` | Paginated, filterable product list |
 | `GET` | `/api/products/search` | Full-text product search |
+| `GET` | `/api/products/sale` | Active sale / discounted products |
 | `GET` | `/api/products/:id` | Product detail, reviews, related items |
 | `GET` | `/api/collections` | Design theme collections |
 | `GET` | `/api/collections/:id/products` | Products within a collection |
-| `GET` | `/api/products/sale` | Active sale / discounted products |
+
+> **Route order:** `/search` and `/sale` must be registered before `/:id` (see `api_doc.md` §0.1).
 
 ### 1.3 Customer — Cart, Wishlist & Reviews (12)
 
@@ -73,6 +76,8 @@ Quick-reference index for all endpoints documented in [`api_doc.md`](./api_doc.m
 | `GET` | `/api/deliveries/track/:order_id` | Track delivery status |
 | `POST` | `/api/contact` | Submit contact / support message |
 
+> **Route order:** `/history` and `/cancel` must be registered before `/:id` (see `api_doc.md` §0.1).
+
 ### 1.5 In-Store Sales Executive (3)
 
 | Method | Endpoint | Purpose |
@@ -88,12 +93,13 @@ Quick-reference index for all endpoints documented in [`api_doc.md`](./api_doc.m
 | `GET` | `/api/delivery/assignments` | List assigned shipments |
 | `PATCH` | `/api/delivery/status` | Update delivery status |
 
-### 1.7 Store Owner / Admin (30)
+### 1.7 Store Owner / Admin (31)
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `GET` | `/api/admin/dashboard/metrics` | Cross-channel analytics snapshot |
 | `POST` | `/api/admin/products` | Create product |
+| `GET` | `/api/admin/products` | Paginated admin product list |
 | `GET` | `/api/admin/products/:id` | Admin product detail (includes `images[]`) |
 | `PATCH` | `/api/admin/products/:id` | Update product |
 | `DELETE` | `/api/admin/products/:id` | Soft-delete / remove product |
@@ -123,7 +129,7 @@ Quick-reference index for all endpoints documented in [`api_doc.md`](./api_doc.m
 | `GET` | `/api/admin/contact` | List contact form submissions |
 | `PATCH` | `/api/admin/contact/:id` | Update contact ticket status |
 
-> **Total:** 6 + 8 + 12 + 11 + 3 + 2 + 30 = **72 endpoints**
+> **Total:** 6 + 8 + 12 + 11 + 3 + 2 + 31 = **73 endpoints**
 
 ---
 
@@ -133,7 +139,7 @@ The PRD now defines **17 tables** (§5.1–§5.17). Two tables share the number 
 
 | PRD Table | API coverage | Status |
 |-----------|-------------|--------|
-| `users` | Auth, profile, admin user CRUD | Aligned |
+| `users` | Auth, profile, admin user CRUD | **Gap — missing `is_active` for deactivation** |
 | `products` | Catalog, admin CRUD, staff lookup | **Gap — `rating` column missing in PRD** |
 | `collections` | Public read + admin CRUD | Aligned |
 | `product_collection_mapping` | Collection products + admin mapping | Aligned |
@@ -164,9 +170,14 @@ These fields/tables are used in `api_doc.md` but are **not yet in the PRD schema
 | 3 | Order address snapshot | `POST /api/orders` sends `delivery_address`, `landmark`, `pin_code` | Add `delivery_address`, `landmark`, `pin_code` VARCHAR columns on `orders` |
 | 4 | Refund tracking | `GET /api/orders/:id/refund-status`, `PATCH /api/admin/orders/refund` | Add `refund_status ENUM`, `refund_amount DECIMAL(10,2)` on `orders` — or new `refunds` table |
 | 5 | `deliveries.assigned_driver_user_id` | `PATCH /api/admin/orders/dispatch`, `GET /api/admin/deliveries` | `assigned_driver_user_id INT FK → users(user_id) NULL` on `deliveries` |
-| 6 | `deliveries.delivery_mode` | Staff assisted-checkout response | `delivery_mode ENUM` on `deliveries` |
+| 6 | `deliveries.delivery_mode` | Staff assisted-checkout, order detail | `delivery_mode ENUM` on `deliveries` |
 | 7 | `payments.amount` | `GET /api/payments/:order_id` returns `amount` | `amount DECIMAL(10,2) NOT NULL` on `payments` |
 | 8 | Auth provisioning policy | Customer-only signup, owner creates staff | Add to PRD §4 or new §6 — not a table, but a business rule gap |
+| 9 | `users.is_active` | `DELETE /api/admin/users/:id` deactivates accounts | `is_active BOOLEAN NOT NULL DEFAULT TRUE` on `users` |
+| 10 | Product soft-delete | `DELETE /api/admin/products/:id` | `is_active BOOLEAN NOT NULL DEFAULT TRUE` on `products` |
+| 11 | `ADMIN` role / owner bootstrap | All `/api/admin/*` endpoints | Define `ADMIN` in `users.role` ENUM; seed first admin via migration (documented in API §0.11) |
+| 12 | Walk-in customer linkage | Staff assisted-checkout `customer_details` | Document: auto-create/lookup customer by email/phone for `orders.user_id` |
+| 13 | Shipping rules | `financial_summary.delivery_charges` | Document: ₹0 when post-discount subtotal ≥ ₹10,000; else ₹1,500 |
 
 ### PRD doc issues (non-schema)
 
@@ -179,9 +190,34 @@ These fields/tables are used in `api_doc.md` but are **not yet in the PRD schema
 
 ---
 
-## 4. Gaps — API doc missing items
+## 4. Resolved — API doc internal inconsistencies
 
-All PRD-backed API gaps have been resolved. No outstanding API doc gaps vs PRD schema.
+The following issues were corrected in `api_doc.md` (see §0 Platform Conventions):
+
+| Issue | Resolution |
+|-------|------------|
+| Route ordering | §0.1 documents static-before-param registration; `/products/sale` moved before `/:id` in doc |
+| Financial field naming | Unified to `financial_summary` with `subtotal_amount`, `discount_applied`, `gst_tax_amount`, `delivery_charges`, `grand_total` |
+| Delivery charges contradiction | Cart and checkout now both apply free shipping when post-discount subtotal ≥ ₹10,000 |
+| `delivery_mode` vs `delivery_status` | Staff checkout response fixed; §0.3 defines separate state machines |
+| Dispatch endpoint | `PATCH /api/admin/orders/dispatch` now updates `delivery_status`, not `order_status` |
+| Missing admin list | Added `GET /api/admin/products` (paginated catalog list) |
+| Order history field | `total_amount` renamed to `grand_total` for consistency |
+| localStorage cart mapping | §0.7 documents `id`/`qty` → `product_id`/`quantity` |
+| RBAC & errors | §0.5 standard error format; §0.6 role access matrix |
+| Computed fields | §0.4 documents `estimated_delivery_date` as derived, not stored |
+
+### Minor polish (second pass — resolved)
+
+| Issue | Resolution |
+|-------|------------|
+| ENUM appendix incomplete | §0.8 — full ENUM reference for all status/role/channel fields |
+| Pagination gaps | §0.9 + `page` on order history, product reviews, admin orders/deliveries/payments/users/reviews/contact/coupons, delivery assignments |
+| Review verification | `POST /api/reviews` — purchase eligibility, one-per-product, 409/422 error codes |
+| Image upload | §0.10 — URL-only in v1; no multipart upload; max 5 product / 3 review images |
+| ADMIN bootstrap | §0.11 — seed via migration; `POST /api/admin/users` cannot create ADMIN |
+| Admin payments list | `GET /api/admin/payments` now includes `amount` |
+| Signup token policy | Signup returns `token` + `user` (same shape as login) with optional re-login note |
 
 ---
 
@@ -208,27 +244,35 @@ The following were flagged in earlier versions of this index and are **now prese
 
 ## 6. Implementation Status (backend code)
 
-Only auth is implemented today. Path naming also differs from the API doc.
+Only auth is implemented today. Path naming and response shapes also differ from the API doc.
 
 | Status | Method | Doc path | Code path |
 |--------|--------|----------|-----------|
 | Implemented | `POST` | `/api/auth/signup` | `/api/auth/register` |
 | Implemented | `POST` | `/api/auth/login` | `/api/auth/login` |
-| Not implemented | — | Remaining **70 endpoints** | — |
+| Not implemented | — | Remaining **71 endpoints** | — |
 
 **Schema in repo:** No SQL migrations or ORM models exist. The PRD schema lives only in `Furni_PRD.docx`. The auth controller uses a partial `users` table with column names (`id`, `password`) that differ from the PRD (`user_id`, `password_hash`).
+
+**Frontend alignment gaps (not in API doc scope):**
+
+| Area | API doc | Frontend today |
+|------|---------|----------------|
+| Signup path | `/api/auth/signup` | `/api/auth/register` |
+| Contact form | `POST /api/contact` (requires `phone`) | Google Sheets script; no `phone` field |
+| Cart sync | `product_id` / `quantity` | localStorage uses `id` / `qty` (mapping in §0.7) |
 
 ---
 
 ## 7. Recommended next steps
 
-1. **Fix PRD schema gaps** — add `rating` back to `products`, add `delivery_mode` + address snapshot + refund fields to `orders`, add `assigned_driver_user_id` to `deliveries`, add `amount` to `payments`.
+1. **Fix PRD schema gaps** — add items from §3 (rating, delivery_mode, refund fields, `is_active`, shipping rules, ENUM appendix).
 2. **Fix PRD doc numbering** — renumber `review_images` to §5.17.
 3. **Align naming** — standardize `review_text` vs `feedback` across PRD and API doc.
-4. **Document auth policy in PRD** — customer-only signup, owner-provisioned staff.
+4. **Document auth policy in PRD** — customer-only signup, owner-provisioned staff, ADMIN bootstrap.
 5. **Generate SQL migrations** from PRD §5 before implementing endpoints.
-6. **Align auth path in code** — `signup` vs `register`.
+6. **Align auth in code** — rename `/register` → `/signup`; match field names and JWT claims (`user_id`, `role`).
 
 ---
 
-*Last synced against `api_doc.md` (72 endpoints) and `Furni_PRD.docx` (17 schema tables). See [`api_doc.md`](./api_doc.md) for full request/response payloads.*
+*Last synced against `api_doc.md` (73 endpoints, §0–§0.11 conventions) and `Furni_PRD.docx` (17 schema tables). See [`api_doc.md`](./api_doc.md) for full request/response payloads.*
