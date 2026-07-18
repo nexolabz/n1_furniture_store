@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useCart } from '../../context/CartContext'
 
 function Header() {
-  const { isLoggedIn } = useAuth()
+  const { isLoggedIn, user } = useAuth()
   const { cartCount } = useCart()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -21,8 +21,12 @@ function Header() {
     { path: '/contact', label: 'Contact' }
   ]
 
+  if (isLoggedIn && (user?.role === 'SUPER_ADMIN' || user?.role === 'STORE_OWNER')) {
+    navLinks.push({ path: '/admin/users', label: 'Manage Users' })
+  }
+
   const activeLinkStyle = ({ isActive }) =>
-    `text-xs font-semibold uppercase tracking-widest py-2 transition-all duration-300 relative after:absolute after:bottom-0 after:left-0 after:h-[2px] after:bg-neutral-900 after:transition-all after:duration-300 ${
+    `text-[11px] 2xl:text-xs font-bold uppercase tracking-wider whitespace-nowrap py-2 transition-all duration-300 relative after:absolute after:bottom-0 after:left-0 after:h-[2px] after:bg-neutral-900 after:transition-all after:duration-300 ${
       isActive
         ? 'text-neutral-900 after:w-full'
         : 'text-neutral-500 hover:text-neutral-900 after:w-0 hover:after:w-full'
@@ -53,7 +57,7 @@ function Header() {
           </div>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden xl:flex space-x-8 xl:space-x-10">
+          <nav className="hidden xl:flex space-x-3 xl:space-x-4 2xl:space-x-6">
             {navLinks.map((link) => (
               <NavLink key={link.path} to={link.path} className={activeLinkStyle}>
                 {link.label}

@@ -15,6 +15,7 @@ import Profile from "./components/Profile/Profile"
 import Cart from "./components/Cart/Cart"
 import Home from './components/Home/Home.jsx'
 import Auth from './components/Auth/Auth.jsx'
+import UserManagement from './components/UserManagement/UserManagement.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { CartProvider } from './context/CartContext.jsx'
 
@@ -36,6 +37,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/profile" element={<Profile />} />
             <Route path="/cart" element={<Cart />} />
             <Route path="/login" element={<Auth />} />
+            <Route path="/admin/users" element={<UserManagement />} />
             {/* Fallback route */}
             <Route path="*" element={<Home />} />
           </Routes>

@@ -12,7 +12,9 @@ app.use(cors({
 }));
 
 const authRoutes=require('./routes/auth')
+const userRoutes=require('./routes/users')
 app.use('/api/auth/',cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }), authRoutes)
+app.use('/api/users/',cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }), userRoutes)
 
 app.listen(3000,()=>{
     console.log("Server is running on port 3000");
